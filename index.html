@@ -136,6 +136,19 @@
           <text x="60" y="45" class="svg-status" id="lampText">待命中</text>
         </g>
       </svg>
+
+      <!-- 即時遙測（工程讀數） -->
+      <div class="telemetry" aria-label="即時狀態讀數">
+        <div class="tcell"><span class="tk">狀態</span><span class="tv st-g" id="tStatus">待命</span></div>
+        <div class="tcell"><span class="tk">J1 肩</span><span class="tv" id="tJ1">0°</span></div>
+        <div class="tcell"><span class="tk">J2 肘</span><span class="tv" id="tJ2">0°</span></div>
+        <div class="tcell"><span class="tk">TCP X</span><span class="tv" id="tX">0</span></div>
+        <div class="tcell"><span class="tk">TCP Y</span><span class="tv" id="tY">0</span></div>
+        <div class="tcell"><span class="tk">夾爪</span><span class="tv" id="tGrip">開啟</span></div>
+        <div class="tcell"><span class="tk">速度</span><span class="tv" id="tSpeed">70%</span></div>
+        <div class="tcell"><span class="tk">負載</span><span class="tv" id="tPayload">0.0/3.0kg</span></div>
+        <div class="tcell"><span class="tk">循環</span><span class="tv" id="tCycles">0</span></div>
+      </div>
     </div>
 
     <!-- 控制面板 -->
@@ -154,6 +167,35 @@
         <button class="cmd-btn warn" data-cmd="fault">⚠️ 模擬故障</button>
       </div>
 
+      <details class="more-ctrl" open>
+        <summary>🔧 進階控制（更多功能）</summary>
+        <div class="more-grid">
+          <button class="mini-btn" data-cmd="gripOpen">✋ 夾爪張開</button>
+          <button class="mini-btn" data-cmd="gripClose">🤏 夾爪夾合</button>
+          <button class="mini-btn" data-cmd="pickRed">🔴 夾起紅色</button>
+          <button class="mini-btn" data-cmd="pickBlue">🔵 夾起藍色</button>
+          <button class="mini-btn" data-cmd="placeA">放到 A 區</button>
+          <button class="mini-btn" data-cmd="placeB">放到 B 區</button>
+          <button class="mini-btn" data-cmd="jogLeft">◀ 左移</button>
+          <button class="mini-btn" data-cmd="jogRight">右移 ▶</button>
+          <button class="mini-btn" data-cmd="jogUp">▲ 上移</button>
+          <button class="mini-btn" data-cmd="jogDown">▼ 下移</button>
+          <button class="mini-btn" data-cmd="center">⊕ 置中</button>
+          <button class="mini-btn" data-cmd="stack">🧱 堆疊</button>
+          <button class="mini-btn" data-cmd="drawSquare">✏️ 畫方形</button>
+          <button class="mini-btn" data-cmd="drawCircle">⭕ 畫圓</button>
+          <button class="mini-btn" data-cmd="reset">♻️ 重置歸位</button>
+          <button class="mini-btn" data-cmd="status">📊 狀態回報</button>
+          <button class="mini-btn" data-cmd="count">🔢 清點</button>
+          <button class="mini-btn" data-cmd="selftest">🔧 自我測試</button>
+          <button class="mini-btn" data-cmd="calibrate">🎯 校正歸零</button>
+          <button class="mini-btn" data-cmd="speedSlow">🐢 慢速</button>
+          <button class="mini-btn" data-cmd="speedNormal">🚶 正常</button>
+          <button class="mini-btn" data-cmd="speedFast">🐇 快速</button>
+        </div>
+        <button class="estop-btn" id="estopBtn" data-cmd="estop">🛑 緊急停止</button>
+      </details>
+
       <div class="say-box">
         <label for="cmdInput" class="say-label">💬 也可以打中文跟它說：</label>
         <div class="say-row">
@@ -161,7 +203,7 @@
           <button id="cmdVoice" class="voice-btn" title="用說的">🎤</button>
           <button id="cmdSend" class="send-btn">送出</button>
         </div>
-        <div class="say-hint">試試看：「藍色放B區」、「揮手」、「回家」、「移到 X=300 Y=300」</div>
+        <div class="say-hint">試試看：「夾起紅色放到A區」、「往左移60」、「轉肩30度」、「畫一個圓」、「回報狀態」、「校正」、「急停」、「先夾藍色放B區再回家」（AI 模式可一次講多步驟）</div>
       </div>
 
       <details class="ai-mode" id="aiModeBox">

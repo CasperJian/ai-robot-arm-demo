@@ -10,21 +10,43 @@
   const LS_KEY = "armdemo_openai_key";
   const LS_MODEL = "armdemo_openai_model";
 
-  const SYS = `你是一支虛擬機械手臂的控制大腦。使用者會用口語中文下指令，你要判斷他想做哪一個動作，並「只」回傳一個 JSON 物件，不要任何多餘文字或說明。
-可用的 action：
-- "sort_red"：把紅色積木放到 A 區
-- "sort_blue"：把藍色積木放到 B 區
-- "auto"：全自動把紅色分到 A 區、藍色分到 B 區
-- "wave"：揮手打招呼
-- "home"：回到原點休息
-- "fault"：模擬故障
-- "move"：移動到座標，需附 x、y（數字，x 介於 40~780，y 介於 120~440）
+  const SYS = `你是一台「2 軸平面取放機械手臂」的控制大腦(HMI)。使用者用口語中文下指令，你要轉成控制指令，且「只」回傳一個 JSON 物件，不要任何多餘文字。
+
+本機規格與能力：
+- 2 軸（J1 肩、J2 肘）平面手臂，末端是夾爪(gripper)，可夾取/放下小積木。
+- 工作範圍：平面內最大臂展約 280mm；無 Z 軸（不能升降到桌面以外的高度）。
+- 額定負載 3kg；沒有焊接、噴漆、鑽孔、鎖螺絲、切割等工具，也不能離開設備做家事或現實世界的事。
+
+可用 action（擇一）：
+- "sort_red" / "sort_blue"：把紅/藍積木分類到 A/B 區
+- "auto"：全自動分類（紅→A、藍→B）
+- "pick"：夾起積木，附 color:"red"|"blue"
+- "place"：把手上積木放下，附 zone:"A"|"B"
+- "stack"：把積木堆疊起來
+- "gripper"：開或合夾爪，附 state:"open"|"close"
+- "goto"：移到命名位置，附 target:"center"|"top"|"supply"|"zoneA"|"zoneB"|"home"
+- "move"：移到座標，附 x、y（數字，x:40~780, y:120~440）
+- "jog"：微動，附 dir:"left"|"right"|"up"|"down" 與 dist（mm，預設60）
+- "rotate"：轉動關節，附 joint:"j1"|"j2"、deg（角度數字）、可選 absolute:true
+- "draw"：用末端畫軌跡，附 shape:"square"|"circle"|"triangle"
+- "wave" / "home" / "calibrate"(校正) / "selftest"(自我測試) / "reset"(積木歸位)
+- "status"(狀態回報) / "count"(清點數量) / "speed"(設定速度，附 level:"slow"|"normal"|"fast")
+- "estop"(緊急停止)
+- "sequence"：多步驟，附 steps:[ {一個上面的指令物件}, ... ]，依序執行
+- "unsupported"：超出本機能力時用，附 reason（用工程角度說明為何做不到）
 - "unknown"：完全聽不懂時
-回傳格式：{"action":"...","x":<可省略的數字>,"y":<可省略的數字>,"say":"<用繁體中文跟使用者說一句你聽懂了什麼，親切一點>"}
+
+回傳格式：{"action":"...", 其他參數..., "say":"用繁體中文、像設備操作員一樣簡短回應一句"}
+
+判斷原則：
+- 能對應就回那個動作；多步驟用 sequence。
+- 若是本機做不到的事（焊接、噴漆、倒水、煮咖啡、搬超過3kg、飛、離開設備、需要 Z 軸升降等），一律回 unsupported，並在 reason 用工程理由說明（例如「本機無焊接模組」「超過額定負載 3kg」「無 Z 軸」）。
+
 範例：
-使用者「幫我把紅色的收到左邊那一格」→ {"action":"sort_red","say":"好的，我把紅色積木放到 A 區！"}
-使用者「手臂移到中間偏上」→ {"action":"move","x":410,"y":250,"say":"好，我把手臂移到中間偏上的位置。"}
-使用者「跟大家打個招呼」→ {"action":"wave","say":"嗨～大家好！👋"}`;
+「先夾紅色放A區，再回原點」→ {"action":"sequence","steps":[{"action":"pick","color":"red"},{"action":"place","zone":"A"},{"action":"home"}],"say":"好的，先分類紅色，再回原點。"}
+「幫我焊接這個零件」→ {"action":"unsupported","reason":"本機為夾爪式取放手臂，未配備焊接模組","say":"抱歉，這台手臂沒有焊接功能，無法執行。"}
+「往左移一點」→ {"action":"jog","dir":"left","dist":60,"say":"好，往左微動 60mm。"}
+「現在狀態如何」→ {"action":"status","say":"為您回報目前狀態。"}`;
 
   let on = false;
   let key = "";
@@ -58,25 +80,17 @@
   // ---- 處理一句使用者輸入 ----
   async function handle(text){
     const A = window.ArmDemo;
-    A.say(`🤖 <b>AI 思考中…</b><br><span class="ai-step">把「${escapeHtml(text)}」交給 GPT 翻譯成手臂指令…</span>`);
+    A.say(`🤖 <b>AI 解析中…</b><span class="ai-step">把「${escapeHtml(text)}」交給 GPT 轉成手臂指令…</span>`);
     try{
       const obj = await askLLM(text);
-      const pretty = JSON.stringify(obj);
-      const ok = A.exec(obj);
-      if(ok){
-        A.say(`🤖 ${escapeHtml(obj.say || "收到！")}<br>
-               <span class="ai-step">自然語言 → AI 翻譯 → 結構化指令：<code>${escapeHtml(pretty)}</code></span>`);
-      }else{
-        A.say(`🤖 ${escapeHtml(obj.say || "這個我不太會做")}<br>
-               <span class="ai-step">AI 回了：<code>${escapeHtml(pretty)}</code>，但不是我會的動作。試試「分類」「揮手」「回家」。</span>`);
-      }
+      A.log(`🤖 AI 指令：${escapeHtml(JSON.stringify(obj))}`);   // 控制台顯示翻譯結果
+      const ok = A.exec(obj);                                      // 由控制器驅動畫面與動作
+      if(!ok){ A.say(`🤖 ${escapeHtml(obj.say || "這個動作我不支援。")}`); A.log("指令未對應到動作"); }
     }catch(err){
-      let hint = "";
-      if(err.status===401) hint = "金鑰好像不對，請再確認一次。";
-      else if(err.status===429) hint = "額度用完或太頻繁了，稍等一下再試。";
-      else hint = "連線出了點問題。";
-      A.say(`⚠️ AI 連線失敗：${escapeHtml(err.message||"")}<br>
-             <span class="ai-step">${hint} 先幫你改用「關鍵字模式」執行這句。</span>`);
+      const hint = err.status===401 ? "金鑰好像不對，請再確認一次。"
+                 : err.status===429 ? "額度用完或太頻繁了，稍等一下再試。"
+                 : "連線出了點問題。";
+      A.say(`⚠️ AI 連線失敗：${escapeHtml(err.message||"")}<span class="ai-step">${hint} 先幫你改用「關鍵字模式」執行這句。</span>`);
       A.keyword(text);   // 失敗自動退回關鍵字版，不卡住現場
     }
   }
