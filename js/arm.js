@@ -351,7 +351,35 @@
     });
   }
 
-  // ---- 中文指令解析 ----
+  // ---- 執行結構化動作（給 AI 模式呼叫） ----
+  function execAction(o){
+    if(!o || !o.action) return false;
+    switch(String(o.action).toLowerCase()){
+      case "sort_red": case "red":  doSort("red");  return true;
+      case "sort_blue": case "blue": doSort("blue"); return true;
+      case "auto": case "sort_all": doAuto(); return true;
+      case "wave":  doWave(); return true;
+      case "home":  doHome(); return true;
+      case "fault": doFault(); return true;
+      case "hack":  doHack(); return true;
+      case "move":
+        runTask(async()=>{
+          await moveTo(clamp(Number(o.x)||endPoint().ex,40,780),
+                       clamp(Number(o.y)||endPoint().ey,120,440));
+        });
+        return true;
+      default: return false;
+    }
+  }
+
+  // ---- 路由：AI 模式 → 交給 LLM；否則用關鍵字 ----
+  function route(text){
+    if(!text || !text.trim()) return;
+    if(window.ArmAI && window.ArmAI.isOn()){ window.ArmAI.handle(text); }
+    else { parse(text); }
+  }
+
+  // ---- 中文指令解析（關鍵字版，AI 關閉時使用） ----
   function parse(text){
     const t = text.replace(/\s/g,"");
     if(!t) return;
@@ -395,7 +423,7 @@
       const said=e.results[0][0].transcript;
       $("cmdInput").value=said;
       ai(`🎤 我聽到你說：<b>「${said}」</b>`);
-      parse(said);
+      route(said);
     };
   }
 
@@ -407,8 +435,8 @@
       ({redA:()=>doSort("red"), blueB:()=>doSort("blue"), auto:doAuto,
         wave:doWave, home:doHome, fault:doFault})[c]?.();
     });
-    $("cmdSend").addEventListener("click",()=>{const v=$("cmdInput").value;parse(v);});
-    $("cmdInput").addEventListener("keydown",(e)=>{if(e.key==="Enter")parse($("cmdInput").value);});
+    $("cmdSend").addEventListener("click",()=>{route($("cmdInput").value);});
+    $("cmdInput").addEventListener("keydown",(e)=>{if(e.key==="Enter")route($("cmdInput").value);});
     $("hackBtn").addEventListener("click",doHack);
     const gs=$("guardSwitch");
     gs.addEventListener("change",()=>{
@@ -431,6 +459,11 @@
       if(!raf) tick();
       started=true;
     },
-    isStarted(){return started;}
+    isStarted(){return started;},
+    // 給 AI 模組使用的對外介面
+    exec: execAction,
+    keyword: parse,
+    say: ai,
+    log: log
   };
 })();

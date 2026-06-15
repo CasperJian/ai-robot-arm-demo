@@ -164,6 +164,33 @@
         <div class="say-hint">試試看：「藍色放B區」、「揮手」、「回家」、「移到 X=300 Y=300」</div>
       </div>
 
+      <details class="ai-mode" id="aiModeBox">
+        <summary>🧠 AI 模式：接真的 GPT（進階）</summary>
+        <div class="ai-mode-inner">
+          <p>打開後貼上你自己的 OpenAI 金鑰，就能用<b>任意自然中文</b>指揮手臂——
+             AI 會即時把你的話翻譯成手臂指令，現場展示「說話 → AI 理解 → 手臂動」。</p>
+          <label class="switch-row">
+            <input type="checkbox" id="aiModeSwitch">
+            <span class="switch-ui"></span>
+            <span class="switch-text" id="aiModeText">AI 模式：關閉中（用關鍵字）</span>
+          </label>
+          <div id="aiKeyRow" class="ai-key-row" hidden>
+            <label class="ai-key-label" for="aiKey">你的 OpenAI 金鑰（sk-...）：</label>
+            <div class="say-row">
+              <input type="password" id="aiKey" placeholder="貼上 sk-... 金鑰" autocomplete="off">
+              <button id="aiKeySave" class="send-btn">記住</button>
+            </div>
+            <div class="ai-key-note">🔒 金鑰只存在你這台瀏覽器（不會上傳到 GitHub）。建議用完到 OpenAI 後台撤銷。</div>
+            <label class="ai-model-row">模型：
+              <select id="aiModel">
+                <option value="gpt-4o-mini">gpt-4o-mini（便宜、推薦）</option>
+                <option value="gpt-4o">gpt-4o（較聰明、較貴）</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </details>
+
       <details class="safety-demo">
         <summary>🛡️ 進階：AI 安全攻防小實驗</summary>
         <div class="safety-inner">
@@ -306,6 +333,7 @@
 </footer>
 
 <script src="js/arm.js"></script>
+<script src="js/ai.js"></script>
 <script src="js/games.js"></script>
 <script src="js/app.js"></script>
 </body>
