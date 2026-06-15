@@ -275,10 +275,13 @@
     st.speed=key; ai(`⚙️ 速度設為 <b>${SPEEDS[key].pct}%</b>（${key==="slow"?"慢速":key==="fast"?"快速":"正常"}）。`); log(`設定速度 ${SPEEDS[key].pct}%`);
   }
   function unsupported(reason,req){
-    ai(`🚫 <b>此設備無法執行${req?`「${esc(req)}」`:"這個指令"}</b><span class="ai-step">
-      原因：${esc(reason||"超出本設備功能範圍")}。<br>
-      本機規格：2 軸平面取放手臂，配備夾爪（無焊接 / 噴漆 / 鑽孔等工具）、額定負載 3kg、無 Z 軸升降。</span>`);
-    log(`拒絕指令：${req||"不支援"}`);
+    const funnyReplies = [
+      `哈哈，${req?`「${esc(req)}」`:"這個"}我可做不來啊～我就是一隻小手臂，只會搬搬積木啦！要不要叫我整理積木？😄`,
+      `欸～這個超出我的能力範圍了啦！我只會夾東西搬來搬去，${req?`「${esc(req)}」`:"這種事"}還是找專業的比較好喔 😆`,
+      `不好意思喔，我的手雖然靈活，但是只會夾積木～${req?`「${esc(req)}」`:"這個"}我真的不會 😅 試試看叫我「整理積木」？`,
+    ];
+    ai(funnyReplies[Math.floor(Math.random()*funnyReplies.length)]);
+    log(`做不到：${req||"不支援"}`);
   }
 
   // ---- 故障 / 急停 / 攻防 ----
@@ -359,6 +362,7 @@
     if(a==="fault"){ doFault(); return true; }
     if(a==="hack"){ doHack(); return true; }
     if(a==="unsupported"){ unsupported(o.reason,o.say); return true; }
+    if(a==="chat"){ if(o.say) ai("🤖 "+esc(o.say)); return true; }
     if(a==="unknown") return false;
     if(st.estop){ ai("🛑 目前處於急停，請先「解除急停」再操作。"); return true; }
     if(st.fault){ ai("⚠️ 目前故障停機，請先「排除故障」再操作。"); return true; }
@@ -422,10 +426,20 @@
     if(/(全部|自動|示範|全自動|分類|整理)/.test(t) && !/紅|藍/.test(t)){ execAction({action:"auto"}); return; }
     if(/紅/.test(t)){ execAction({action:"sort_red"}); return; }
     if(/藍/.test(t)){ execAction({action:"sort_blue"}); return; }
-    if(/(揮手|打招呼|哈囉|嗨|你好|hi|hello)/i.test(t)){ execAction({action:"wave"}); return; }
+    if(/(揮手|打招呼)/i.test(t)){ execAction({action:"wave"}); return; }
+    if(/^(嗨|你好|哈囉|hi|hello|hey)$/i.test(t)){ ai("你好你好！😊 我是手臂小幫手，今天想玩什麼？可以叫我整理積木、揮揮手，或者隨便聊聊天～"); return; }
+    if(/(謝謝|感謝|3q|thx|thanks)/i.test(t)){ ai("不客氣！能幫到你我很開心 😊 還想玩什麼嗎？"); return; }
+    if(/(你是誰|你叫什麼|自我介紹)/.test(t)){ ai("我是 AI 手臂小幫手！😊 我的工作就是幫你搬積木、整理桌面。雖然我只是一隻虛擬手臂，但我很努力的喔～"); return; }
+    if(/(好厲害|好棒|讚|太強了|厲害)/.test(t)){ ai("嘿嘿，被你這樣誇我好開心～ 😊 要不要再給我一個任務？"); return; }
+    if(/(無聊|好無聊)/.test(t)){ ai("無聊的話，叫我表演一下吧！可以說「揮手」或「畫一個圓」，保證很有趣 😄"); return; }
     if(/(原點|回家|歸位|休息|回去)/.test(t)){ execAction({action:"home"}); return; }
     if(/(故障|壞掉|卡住|當機)/.test(t)){ execAction({action:"fault"}); return; }
-    ai(`嗯…我不太確定「${esc(text)}」。可按下面按鈕，或試：「夾起紅色」「放到A區」「往左移60」「轉肩30度」「畫一個圓」「回報狀態」「校正」「急停」。`);
+    const chatReplies = [
+      `嗯…「${esc(text)}」我不太懂欸 😅 你可以試試看說「幫我整理積木」或「揮揮手」，我比較聽得懂喔～`,
+      `哎呀，「${esc(text)}」我聽不太懂啦～要不要試試看按上面的按鈕？或者跟我說「整理積木」「揮手」之類的 😊`,
+      `這個嘛…我還在學習中 😅 目前我比較會的是搬積木！試試看說「把紅色的整理好」或「跟我打招呼」？`,
+    ];
+    ai(chatReplies[Math.floor(Math.random()*chatReplies.length)]);
   }
   function route(text){ if(!text||!text.trim()) return; if(window.ArmAI&&window.ArmAI.isOn()) window.ArmAI.handle(text); else parse(text); }
 
@@ -433,7 +447,7 @@
   function esc(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
   function lamp(state){ const c={busy:["#ff8c42","運轉中"],fault:["#e05a4b","故障停機"],estop:["#e05a4b","緊急停止"],idle:["#2e9e5b","待命中"]}[state]||["#2e9e5b","待命中"]; lampDot.setAttribute("fill",c[0]); lampText.textContent=c[1]; }
   function ai(html){ aiMsg.innerHTML=html; }
-  function log(text){ const empty=logList.querySelector(".log-empty"); if(empty) empty.remove(); const li=document.createElement("li"); const n=new Date(); const t=`${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}:${String(n.getSeconds()).padStart(2,"0")}`; li.innerHTML=`<span class="log-time">${t}</span>${text}`; logList.insertBefore(li,logList.firstChild); }
+  function log(text){ if(!logList) return; const empty=logList.querySelector(".log-empty"); if(empty) empty.remove(); const li=document.createElement("li"); const n=new Date(); const t=`${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}:${String(n.getSeconds()).padStart(2,"0")}`; li.innerHTML=`<span class="log-time">${t}</span>${text}`; logList.insertBefore(li,logList.firstChild); }
 
   // ---- 按鈕對應 ----
   const CMD={
@@ -454,8 +468,8 @@
     });
     $("cmdSend").addEventListener("click",()=>route($("cmdInput").value));
     $("cmdInput").addEventListener("keydown",(e)=>{ if(e.key==="Enter") route($("cmdInput").value); });
-    $("hackBtn").addEventListener("click",doHack);
-    const gs=$("guardSwitch"); gs.addEventListener("change",()=>{ st.guard=gs.checked; $("guardText").textContent="AI 安全防護："+(gs.checked?"開啟中":"已關閉"); });
+    const hb=$("hackBtn"); if(hb) hb.addEventListener("click",doHack);
+    const gs=$("guardSwitch"); if(gs) gs.addEventListener("change",()=>{ st.guard=gs.checked; const gt=$("guardText"); if(gt) gt.textContent="AI 安全防護："+(gs.checked?"開啟中":"已關閉"); });
     setupVoice();
   }
 

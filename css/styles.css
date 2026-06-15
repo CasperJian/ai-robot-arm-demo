@@ -154,6 +154,19 @@ main{max-width:1080px;margin:0 auto;padding:18px 16px 40px;}
 .send-btn:hover{background:#2559ac;}
 .say-hint{font-size:.92rem;color:var(--muted);margin-top:8px;}
 
+/* 主要輸入框（加強醒目） */
+.say-box-main{background:var(--card);border:3px solid var(--blue);border-radius:18px;padding:16px;box-shadow:0 2px 12px rgba(47,111,209,.15);}
+.say-box-main #cmdInput{font-size:1.15rem;padding:16px;}
+.say-box-main .send-btn{padding:0 24px;font-size:1.1rem;}
+
+/* AI 金鑰設定（低調） */
+.ai-key-setting{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px 14px;}
+.ai-key-setting summary{font-size:.95rem;color:var(--muted);padding:8px 0;cursor:pointer;}
+.ai-key-inner{padding:6px 0 14px;font-size:.95rem;color:var(--ink);}
+.ai-key-inner p{margin:0 0 10px;}
+.ai-key-inner .say-row{margin-bottom:8px;}
+.ai-key-note{font-size:.85rem;color:var(--muted);}
+
 .safety-demo{background:#fff;border:2px solid var(--line);border-radius:16px;padding:6px 14px;}
 .safety-demo summary{font-weight:800;color:var(--navy);padding:10px 0;cursor:pointer;font-size:1.05rem;}
 .safety-inner{padding:6px 0 14px;font-size:1rem;color:var(--ink);}

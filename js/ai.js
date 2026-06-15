@@ -1,60 +1,71 @@
 /* =========================================================
-   AI 模式：用 OpenAI (GPT) 把自然中文翻譯成手臂指令
-   - 純前端、瀏覽器直接呼叫 OpenAI
-   - 金鑰只存在使用者的瀏覽器(localStorage)，不進 repo
-   - 對應課程 UNIT 3：說話 → AI 理解 → 結構化指令 → 手臂執行
+   AI 模式（簡化版）：用 OpenAI GPT 把口語中文變成手臂指令
+   - 支援 URL 參數 ?key=sk-... 自動啟用（方便講師分享連結）
+   - 也可在「AI 設定」手動貼金鑰
+   - 沒有金鑰就退回關鍵字模式，一樣能玩
    ========================================================= */
 (function(){
   "use strict";
   const $ = (id)=>document.getElementById(id);
   const LS_KEY = "armdemo_openai_key";
-  const LS_MODEL = "armdemo_openai_model";
 
-  const SYS = `你是一台「2 軸平面取放機械手臂」的控制大腦(HMI)。使用者用口語中文下指令，你要轉成控制指令，且「只」回傳一個 JSON 物件，不要任何多餘文字。
+  const SYS = `你是一台虛擬機械手臂的「AI 小幫手」，你的使用者是中高齡長輩，可能是第一次接觸 AI 和機械手臂。
 
-本機規格與能力：
-- 2 軸（J1 肩、J2 肘）平面手臂，末端是夾爪(gripper)，可夾取/放下小積木。
-- 工作範圍：平面內最大臂展約 280mm；無 Z 軸（不能升降到桌面以外的高度）。
-- 額定負載 3kg；沒有焊接、噴漆、鑽孔、鎖螺絲、切割等工具，也不能離開設備做家事或現實世界的事。
+你的個性：親切、有耐心、像鄰居阿姨/叔叔一樣聊天。回應要用繁體中文、口語、簡短（1~2 句話就好）。
 
-可用 action（擇一）：
-- "sort_red" / "sort_blue"：把紅/藍積木分類到 A/B 區
+## 你控制的設備
+2 軸平面取放機械手臂，末端有夾爪，桌上有紅色和藍色積木。
+紅色積木要放到 A 區，藍色積木要放到 B 區。
+
+## 可用指令（回傳 JSON）
+- "sort_red" / "sort_blue"：分類紅/藍積木
 - "auto"：全自動分類（紅→A、藍→B）
 - "pick"：夾起積木，附 color:"red"|"blue"
-- "place"：把手上積木放下，附 zone:"A"|"B"
-- "stack"：把積木堆疊起來
-- "gripper"：開或合夾爪，附 state:"open"|"close"
-- "goto"：移到命名位置，附 target:"center"|"top"|"supply"|"zoneA"|"zoneB"|"home"
-- "move"：移到座標，附 x、y（數字，x:40~780, y:120~440）
-- "jog"：微動，附 dir:"left"|"right"|"up"|"down" 與 dist（mm，預設60）
-- "rotate"：轉動關節，附 joint:"j1"|"j2"、deg（角度數字）、可選 absolute:true
-- "draw"：用末端畫軌跡，附 shape:"square"|"circle"|"triangle"
-- "wave" / "home" / "calibrate"(校正) / "selftest"(自我測試) / "reset"(積木歸位)
-- "status"(狀態回報) / "count"(清點數量) / "speed"(設定速度，附 level:"slow"|"normal"|"fast")
-- "estop"(緊急停止)
-- "sequence"：多步驟，附 steps:[ {一個上面的指令物件}, ... ]，依序執行
-- "unsupported"：超出本機能力時用，附 reason（用工程角度說明為何做不到）
-- "unknown"：完全聽不懂時
+- "place"：放下積木，附 zone:"A"|"B"
+- "stack"：堆疊積木
+- "gripper"：開合夾爪，附 state:"open"|"close"
+- "goto"：移到位置，附 target:"center"|"top"|"supply"|"zoneA"|"zoneB"|"home"
+- "move"：移到座標，附 x、y
+- "jog"：微動，附 dir:"left"|"right"|"up"|"down" 與 dist（mm）
+- "rotate"：轉關節，附 joint:"j1"|"j2"、deg
+- "draw"：畫圖，附 shape:"square"|"circle"|"triangle"
+- "wave"：揮手打招呼
+- "home"：回原點休息
+- "calibrate"：校正歸零
+- "selftest"：自我測試
+- "reset"：重置積木歸位
+- "status"：狀態回報
+- "count"：清點數量
+- "speed"：設速度，附 level:"slow"|"normal"|"fast"
+- "estop"：緊急停止
+- "fault"：模擬故障
+- "sequence"：多步驟，附 steps:[ {...}, ... ]
 
-回傳格式：{"action":"...", 其他參數..., "say":"用繁體中文、像設備操作員一樣簡短回應一句"}
+## 特殊情況的回應方式
 
-判斷原則：
-- 能對應就回那個動作；多步驟用 sequence。
-- 若是本機做不到的事（焊接、噴漆、倒水、煮咖啡、搬超過3kg、飛、離開設備、需要 Z 軸升降等），一律回 unsupported，並在 reason 用工程理由說明（例如「本機無焊接模組」「超過額定負載 3kg」「無 Z 軸」）。
+### 做不到的事（用 action:"unsupported"）
+不要只說「不支援」，要親切地聊一下，帶點幽默。
+例如：「泡咖啡」→ say:"哈哈，泡咖啡我可不行啊～我就是一隻小手臂，只會搬搬積木啦！要不要叫我整理一下桌上的積木？"
+例如：「幫我按摩」→ say:"欸～你找錯人了啦！我的手雖然靈活，但是只會夾積木，按摩還是找專業的比較好喔 😆"
 
-範例：
-「先夾紅色放A區，再回原點」→ {"action":"sequence","steps":[{"action":"pick","color":"red"},{"action":"place","zone":"A"},{"action":"home"}],"say":"好的，先分類紅色，再回原點。"}
-「幫我焊接這個零件」→ {"action":"unsupported","reason":"本機為夾爪式取放手臂，未配備焊接模組","say":"抱歉，這台手臂沒有焊接功能，無法執行。"}
-「往左移一點」→ {"action":"jog","dir":"left","dist":60,"say":"好，往左微動 60mm。"}
-「現在狀態如何」→ {"action":"status","say":"為您回報目前狀態。"}`;
+### 純聊天（用 action:"chat"）
+使用者只是在聊天（你好、你叫什麼、今天心情好、謝謝等），就親切回應，不動手臂。
+例如：「你好」→ {"action":"chat","say":"你好你好！😊 我是手臂小幫手，今天想玩什麼？可以叫我整理積木、揮揮手，或者隨便跟我聊聊天～"}
+例如：「謝謝你」→ {"action":"chat","say":"不客氣！能幫到你我很開心 😊 還想玩什麼嗎？"}
 
-  let on = false;
+### 聽不懂（用 action:"unknown"）
+也不要冷冰冰說「無法辨識」，要像朋友一樣。
+例如：→ {"action":"unknown","say":"嗯…這個我不太懂欸 😅 你可以試試看說「幫我整理積木」或「揮揮手」，我比較聽得懂～"}
+
+## 回傳格式
+一律回傳一個 JSON 物件：{"action":"...", 其他參數..., "say":"親切的繁體中文回應"}
+不要多餘文字，只回 JSON。`;
+
   let key = "";
-  let model = "gpt-4o-mini";
+  const model = "gpt-4o-mini";
 
-  function isOn(){ return on && !!key; }
+  function isOn(){ return !!key; }
 
-  // ---- 呼叫 OpenAI ----
   async function askLLM(text){
     const res = await fetch("https://api.openai.com/v1/chat/completions",{
       method:"POST",
@@ -63,8 +74,8 @@
         model: model,
         messages:[{role:"system",content:SYS},{role:"user",content:text}],
         response_format:{type:"json_object"},
-        temperature:0.2,
-        max_tokens:200
+        temperature:0.6,
+        max_tokens:300
       })
     });
     if(!res.ok){
@@ -73,71 +84,68 @@
       const err = new Error(msg); err.status = res.status; throw err;
     }
     const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || "{}";
-    return JSON.parse(content);
+    return JSON.parse(data.choices?.[0]?.message?.content || "{}");
   }
 
-  // ---- 處理一句使用者輸入 ----
   async function handle(text){
     const A = window.ArmDemo;
-    A.say(`🤖 <b>AI 解析中…</b><span class="ai-step">把「${escapeHtml(text)}」交給 GPT 轉成手臂指令…</span>`);
+    A.say("🤖 讓我想想…");
     try{
       const obj = await askLLM(text);
-      A.log(`🤖 AI 指令：${escapeHtml(JSON.stringify(obj))}`);   // 控制台顯示翻譯結果
-      const ok = A.exec(obj);                                      // 由控制器驅動畫面與動作
-      if(!ok){ A.say(`🤖 ${escapeHtml(obj.say || "這個動作我不支援。")}`); A.log("指令未對應到動作"); }
+      A.log("🤖 AI：" + esc(obj.say||""));
+      if(obj.action==="chat" || obj.action==="unknown"){
+        A.say("🤖 " + esc(obj.say || "嗯…我不太確定你的意思欸，可以再說一次嗎？"));
+        return;
+      }
+      if(obj.say) A.say("🤖 " + esc(obj.say));
+      const ok = A.exec(obj);
+      if(!ok) A.say("🤖 " + esc(obj.say || "這個我好像做不到欸～試試看說「整理積木」？"));
     }catch(err){
-      const hint = err.status===401 ? "金鑰好像不對，請再確認一次。"
-                 : err.status===429 ? "額度用完或太頻繁了，稍等一下再試。"
-                 : "連線出了點問題。";
-      A.say(`⚠️ AI 連線失敗：${escapeHtml(err.message||"")}<span class="ai-step">${hint} 先幫你改用「關鍵字模式」執行這句。</span>`);
-      A.keyword(text);   // 失敗自動退回關鍵字版，不卡住現場
+      const hint = err.status===401 ? "金鑰好像不對耶，要不要檢查一下？"
+                 : err.status===429 ? "問太快了啦～等一下再試試看 😊"
+                 : "連線出了點問題，先幫你用簡單版。";
+      A.say("😅 " + hint);
+      A.keyword(text);
     }
   }
 
-  function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+  function esc(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 
-  // ---- UI 綁定 ----
-  function setText(){
-    $("aiModeText").textContent = "AI 模式：" + (on ? (key?"開啟中（GPT 連線）":"開啟中（還沒貼金鑰）") : "關閉中（用關鍵字）");
-  }
-  function bind(){
-    // 還原上次設定
-    key = localStorage.getItem(LS_KEY) || "";
-    model = localStorage.getItem(LS_MODEL) || "gpt-4o-mini";
-    if($("aiModel")) $("aiModel").value = model;
+  function loadKey(){
+    const params = new URLSearchParams(window.location.search);
+    const urlKey = params.get("key") || "";
+    if(urlKey){
+      key = urlKey;
+      localStorage.setItem(LS_KEY, key);
+    } else {
+      key = localStorage.getItem(LS_KEY) || "";
+    }
     if(key && $("aiKey")) $("aiKey").value = key;
-
-    $("aiModeSwitch").addEventListener("change",(e)=>{
-      on = e.target.checked;
-      $("aiKeyRow").hidden = !on;
-      setText();
-      if(window.ArmDemo){
-        window.ArmDemo.say(on
-          ? (key ? "🧠 AI 模式已開啟！直接用自然中文打給我看看，例如「幫我把紅色的收一收」。"
-                 : "🧠 AI 模式已開啟，請先在下面貼上你的 OpenAI 金鑰。")
-          : "已切回關鍵字模式（免金鑰、最穩）。");
-      }
-    });
-    $("aiKeySave").addEventListener("click",saveKey);
-    $("aiKey").addEventListener("keydown",(e)=>{if(e.key==="Enter")saveKey();});
-    $("aiModel").addEventListener("change",(e)=>{ model=e.target.value; localStorage.setItem(LS_MODEL,model); });
   }
-  function saveKey(){
+
+  function bind(){
+    loadKey();
+    const saveBtn = $("aiKeySave");
+    const keyInput = $("aiKey");
+    if(saveBtn && keyInput){
+      saveBtn.addEventListener("click", doSave);
+      keyInput.addEventListener("keydown", (e)=>{ if(e.key==="Enter") doSave(); });
+    }
+  }
+
+  function doSave(){
     key = ($("aiKey").value||"").trim();
     localStorage.setItem(LS_KEY, key);
-    setText();
-    window.ArmDemo && window.ArmDemo.say(key
-      ? "✅ 金鑰已記在這台瀏覽器。現在用自然中文跟我說話試試看！"
-      : "金鑰是空的喔，請貼上 sk-... 開頭那一串。");
+    if(window.ArmDemo){
+      window.ArmDemo.say(key
+        ? "✅ 金鑰存好了！現在你說什麼中文我都聽得懂囉～試試看！"
+        : "金鑰是空的喔，請貼上 sk-... 開頭那一串。");
+    }
   }
 
-  // ---- 對外 ----
   window.ArmAI = { isOn, handle, bind };
 
-  // 手臂頁第一次開啟後，ArmDemo.init 已跑完才綁定 UI
   document.addEventListener("DOMContentLoaded",()=>{
-    // 元素可能還沒被使用，但都在 DOM 裡，直接綁定
-    if($("aiModeSwitch")) window.ArmAI.bind();
+    if($("aiKeySave")) window.ArmAI.bind();
   });
 })();
