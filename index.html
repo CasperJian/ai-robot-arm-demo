@@ -9,6 +9,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 
@@ -73,69 +81,20 @@
 
   <div class="arm-layout">
     <!-- 舞台 -->
-    <div class="arm-stage">
-      <svg id="armSvg" viewBox="0 0 820 520" role="img" aria-label="虛擬機械手臂工作台">
-        <!-- 背景 -->
-        <rect x="0" y="0" width="820" height="520" fill="url(#bgGrad)"/>
-        <defs>
-          <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#eaf1fb"/>
-            <stop offset="1" stop-color="#d6e3f5"/>
-          </linearGradient>
-          <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#5b7fb5"/>
-            <stop offset="1" stop-color="#34507c"/>
-          </linearGradient>
-        </defs>
-
-        <!-- 地面 -->
-        <rect x="0" y="462" width="820" height="58" fill="#b9c7da"/>
-        <line x1="0" y1="462" x2="820" y2="462" stroke="#9fb1c9" stroke-width="3"/>
-
-        <!-- 供料區（左） -->
-        <rect x="95" y="455" width="240" height="10" rx="5" fill="#8c9bb3"/>
-        <text x="215" y="498" text-anchor="middle" class="svg-label">供 料 區</text>
-
-        <!-- A 區 / B 區（右） -->
-        <rect id="zoneA" x="540" y="420" width="84" height="42" rx="8" fill="#fde0dc" stroke="#e05a4b" stroke-width="3" stroke-dasharray="7 5"/>
-        <text x="582" y="498" text-anchor="middle" class="svg-label" fill="#c2392b">A 區（紅）</text>
-        <rect id="zoneB" x="640" y="420" width="84" height="42" rx="8" fill="#dbe7fb" stroke="#2f6fd1" stroke-width="3" stroke-dasharray="7 5"/>
-        <text x="682" y="498" text-anchor="middle" class="svg-label" fill="#2257a8">B 區（藍）</text>
-
-        <!-- 危險區（資安示範用，預設淡淡的） -->
-        <g id="dangerZone" opacity="0.28">
-          <rect x="560" y="250" width="120" height="70" rx="10" fill="#fff3cd" stroke="#e0a800" stroke-width="4" stroke-dasharray="10 6"/>
-          <text x="620" y="293" text-anchor="middle" class="svg-label" fill="#a07800">⚠️ 危險區</text>
-        </g>
-
-        <!-- 積木（由 JS 動態產生） -->
-        <g id="blocksLayer"></g>
-
-        <!-- 手臂底座 -->
-        <path d="M360 462 L460 462 L440 415 L380 415 Z" fill="url(#metal)"/>
-        <rect x="372" y="405" width="76" height="22" rx="6" fill="#2b446b"/>
-
-        <!-- 手臂（由 JS 繪製） -->
-        <g id="armLayer">
-          <line id="seg1" stroke="url(#metal)" stroke-width="26" stroke-linecap="round"/>
-          <line id="seg2" stroke="#6a8cc0" stroke-width="20" stroke-linecap="round"/>
-          <circle id="joint0" r="16" fill="#2b446b"/>
-          <circle id="joint1" r="13" fill="#3a578d"/>
-          <g id="gripper">
-            <line id="finger1" stroke="#274064" stroke-width="8" stroke-linecap="round"/>
-            <line id="finger2" stroke="#274064" stroke-width="8" stroke-linecap="round"/>
-          </g>
-          <g id="sparks" style="display:none">
-            <text id="sparkText" x="0" y="0" text-anchor="middle" font-size="34">💥</text>
-          </g>
-        </g>
-
-        <!-- 狀態小燈 -->
-        <g id="statusLamp">
-          <circle id="lampDot" cx="40" cy="38" r="11" fill="#2e9e5b"/>
-          <text x="60" y="45" class="svg-status" id="lampText">待命中</text>
-        </g>
-      </svg>
+    <div class="arm-stage arm-stage-3d">
+      <div id="arm3d" class="arm3d-canvas" aria-label="3D 虛擬機械手臂"></div>
+      <div class="dt-badge">🛰️ 數位孿生 Digital Twin　<span class="dt-sync">● 虛擬 ↔ 真實 同步中</span></div>
+      <div class="dt-overlay">
+        <div class="dt-cell"><span class="dt-k">狀態</span><span class="dt-v st-g" id="tStatus">待命</span></div>
+        <div class="dt-cell"><span class="dt-k">J1 底座</span><span class="dt-v" id="tJ1">0°</span></div>
+        <div class="dt-cell"><span class="dt-k">J2 肩</span><span class="dt-v" id="tJ2">0°</span></div>
+        <div class="dt-cell"><span class="dt-k">J3 肘</span><span class="dt-v" id="tJ3">0°</span></div>
+        <div class="dt-cell"><span class="dt-k">TCP(m)</span><span class="dt-v" id="tTCP">0,0,0</span></div>
+        <div class="dt-cell"><span class="dt-k">夾爪</span><span class="dt-v" id="tGrip">開</span></div>
+        <div class="dt-cell"><span class="dt-k">速度</span><span class="dt-v" id="tSpeed">70%</span></div>
+        <div class="dt-cell"><span class="dt-k">循環</span><span class="dt-v" id="tCycles">0</span></div>
+      </div>
+      <div class="dt-foot"><span id="dtLog">▸ 待命中</span><span class="dt-hint">🖱️ 拖曳環繞 · 滾輪縮放</span></div>
     </div>
 
     <!-- 控制面板（簡化：對話 + 輸入 + 幾個大按鈕） -->
@@ -293,7 +252,7 @@
   做給長輩玩的 AI × 資安互動體驗 · 用 ❤️ 製作
 </footer>
 
-<script src="js/arm.js"></script>
+<script type="module" src="js/arm3d.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/games.js"></script>
 <script src="js/app.js"></script>
