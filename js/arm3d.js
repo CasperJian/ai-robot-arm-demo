@@ -6,6 +6,7 @@
    ========================================================= */
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 (function(){
   "use strict";
@@ -59,7 +60,14 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     renderer.setSize(w,h);
     renderer.shadowMap.enabled=true;
     renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace=THREE.SRGBColorSpace;
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure=1.05;
     host.appendChild(renderer.domElement);
+
+    // 環境反射貼圖（讓金屬看起來真實）
+    const pmrem=new THREE.PMREMGenerator(renderer);
+    scene.environment=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
 
     controls=new OrbitControls(camera, renderer.domElement);
     controls.enableDamping=true; controls.dampingFactor=0.08;
@@ -68,8 +76,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     controls.maxPolarAngle=Math.PI*0.49;
 
     // 燈光
-    scene.add(new THREE.HemisphereLight(0xc8d8ff,0x1a2030,0.75));
-    const dir=new THREE.DirectionalLight(0xffffff,1.15);
+    scene.add(new THREE.HemisphereLight(0xc8d8ff,0x1a2030,0.35));
+    const dir=new THREE.DirectionalLight(0xffffff,1.6);
     dir.position.set(4,6,3); dir.castShadow=true;
     dir.shadow.mapSize.set(2048,2048);
     dir.shadow.camera.left=-5; dir.shadow.camera.right=5;
@@ -81,7 +89,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     // 地面（工作台）+ 網格
     const floor=new THREE.Mesh(
       new THREE.PlaneGeometry(40,40),
-      new THREE.MeshStandardMaterial({color:0x2a3344, roughness:0.95, metalness:0.0})
+      new THREE.MeshStandardMaterial({color:0x222a38, roughness:0.55, metalness:0.2})
     );
     floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; scene.add(floor);
     const grid=new THREE.GridHelper(16,32,0x3f5170,0x2f3c52);
@@ -113,55 +121,54 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
   function mat(color,metal,rough){ return new THREE.MeshStandardMaterial({color, metalness:metal??0.55, roughness:rough??0.4}); }
 
   function buildArm(){
-    const steel=mat(0xb7c4d8,0.7,0.32), dark=mat(0x2c3a55,0.6,0.4), accent=mat(0xff8c42,0.4,0.5);
+    const link=mat(0xe9e7e1,0.55,0.34), joint=mat(0x23262b,0.78,0.34), accent=mat(0x2f6fd1,0.5,0.4), tipM=mat(0x14171c,0.6,0.4);
 
-    // 固定底座
-    const baseFixed=new THREE.Mesh(new THREE.CylinderGeometry(0.36,0.4,0.14,48), dark);
-    baseFixed.position.y=0.07; baseFixed.castShadow=true; baseFixed.receiveShadow=true; scene.add(baseFixed);
+    // 固定底座（法蘭 + 座體）
+    const flange=new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.46,0.06,56), joint);
+    flange.position.y=0.03; flange.castShadow=flange.receiveShadow=true; scene.add(flange);
+    const baseHousing=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.24,0.16,48), link);
+    baseHousing.position.y=0.14; baseHousing.castShadow=true; scene.add(baseHousing);
 
-    // 旋轉群（J1 底座偏航）
-    baseGroup=new THREE.Group(); baseGroup.position.y=0.14; scene.add(baseGroup);
-    const turn=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.32,0.2,48), steel);
-    turn.position.y=0.1; turn.castShadow=true; baseGroup.add(turn);
-    const ring=new THREE.Mesh(new THREE.CylinderGeometry(0.31,0.31,0.04,48), accent);
-    ring.position.y=0.2; baseGroup.add(ring);
-    // 立柱到肩
-    const col=new THREE.Mesh(new THREE.BoxGeometry(0.22,H-0.2,0.24), steel);
-    col.position.set(0,(H-0.2)/2+0.2,0); col.castShadow=true; baseGroup.add(col);
+    // J1 旋轉群（底座偏航，肩部 world Y = H）
+    baseGroup=new THREE.Group(); scene.add(baseGroup);
+    const j1=cyl(0.19,0.2,0.18,"y",joint); j1.position.y=0.28; baseGroup.add(j1);
+    const colLen=H-0.34;
+    const col=capsule(0.12,colLen,link); col.position.y=0.34+colLen/2; baseGroup.add(col);
 
     // 肩 J2
     shoulderG=new THREE.Group(); shoulderG.position.set(0,H,0); baseGroup.add(shoulderG);
-    motor(shoulderG,0.15,dark);
-    const upper=new THREE.Mesh(new THREE.BoxGeometry(L1,0.17,0.17), steel);
-    upper.position.x=L1/2; upper.castShadow=true; shoulderG.add(upper);
-    upper.add(stripe(L1,0.17,accent));
+    shoulderG.add(cyl(0.14,0.14,0.24,"z",joint));
+    const upper=capX(0.09,L1,link); upper.position.x=L1/2; shoulderG.add(upper);
 
     // 肘 J3
     elbowG=new THREE.Group(); elbowG.position.set(L1,0,0); shoulderG.add(elbowG);
-    motor(elbowG,0.13,dark);
-    const fore=new THREE.Mesh(new THREE.BoxGeometry(L2,0.14,0.14), steel);
-    fore.position.x=L2/2; fore.castShadow=true; elbowG.add(fore);
-    fore.add(stripe(L2,0.14,accent));
+    elbowG.add(cyl(0.12,0.12,0.2,"z",joint));
+    const fore=capX(0.075,L2,link); fore.position.x=L2/2; elbowG.add(fore);
 
     // 腕 J4
     wristG=new THREE.Group(); wristG.position.set(L2,0,0); elbowG.add(wristG);
-    motor(wristG,0.1,dark);
+    wristG.add(cyl(0.09,0.09,0.17,"z",joint));
+    const wt=capX(0.06,0.18,link); wt.position.x=0.06; wristG.add(wt);
 
-    // 夾爪
+    // 夾爪（掌 + 兩指，TCP 距腕 = GRIP）
     gripG=new THREE.Group(); wristG.add(gripG);
-    const palm=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.16,0.16), dark);
-    palm.position.x=0.06; palm.castShadow=true; gripG.add(palm);
-    fingerL=new THREE.Mesh(new THREE.BoxGeometry(GRIP,0.05,0.05), dark);
-    fingerR=new THREE.Mesh(new THREE.BoxGeometry(GRIP,0.05,0.05), dark);
+    const palm=new THREE.Mesh(new THREE.BoxGeometry(0.09,0.16,0.12), tipM);
+    palm.position.x=0.045; palm.castShadow=true; gripG.add(palm);
+    const fl=GRIP-0.09;
+    fingerL=new THREE.Mesh(new THREE.BoxGeometry(fl,0.05,0.045), tipM);
+    fingerR=new THREE.Mesh(new THREE.BoxGeometry(fl,0.05,0.045), tipM);
     fingerL.castShadow=fingerR.castShadow=true;
-    fingerL.position.set(0.06+GRIP/2,0,0.07); fingerR.position.set(0.06+GRIP/2,0,-0.07);
+    fingerL.position.set(0.09+fl/2,0,0.065); fingerR.position.set(0.09+fl/2,0,-0.065);
+    fingerL.add(new THREE.Mesh(new THREE.BoxGeometry(fl*0.7,0.052,0.012), accent));
+    fingerR.add(new THREE.Mesh(new THREE.BoxGeometry(fl*0.7,0.052,0.012), accent));
     gripG.add(fingerL); gripG.add(fingerR);
 
-    // TCP 標記（夾爪尖端，用於取放/遙測）
-    tcp=new THREE.Object3D(); tcp.position.set(0.06+GRIP,0,0); gripG.add(tcp);
+    tcp=new THREE.Object3D(); tcp.position.set(GRIP,0,0); gripG.add(tcp);
   }
-  function motor(group,r,m){ const c=new THREE.Mesh(new THREE.CylinderGeometry(r,r,0.22,32),m); c.rotation.x=Math.PI/2; c.castShadow=true; group.add(c); }
-  function stripe(len,t,m){ const s=new THREE.Mesh(new THREE.BoxGeometry(len*0.5,t*1.02,t*0.4),m); s.position.x=0; return s; }
+  // 幾何小工具
+  function cyl(rt,rb,h,axis,m){ const c=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,40),m); if(axis==="z")c.rotation.x=Math.PI/2; if(axis==="x")c.rotation.z=Math.PI/2; c.castShadow=true; return c; }
+  function capsule(r,len,m){ const me=new THREE.Mesh(new THREE.CapsuleGeometry(r,Math.max(0.01,len-2*r),10,24),m); me.castShadow=true; return me; }
+  function capX(r,len,m){ const me=new THREE.Mesh(new THREE.CapsuleGeometry(r,Math.max(0.01,len-2*r),10,24),m); me.rotation.z=Math.PI/2; me.castShadow=true; return me; }
 
   function buildBlocks(){
     const xs=1.0, zs=[-0.42,-0.14,0.14,0.42], cols=["red","blue","red","blue"];
@@ -214,7 +221,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     shoulderG.rotation.z=st.cur.s;
     elbowG.rotation.z=st.cur.e;
     wristG.rotation.z=st.cur.w;
-    const open=0.07*(0.4+0.6*st.cur.g);
+    const open=0.05+0.06*st.cur.g;
     if(fingerL) fingerL.position.z=open;
     if(fingerR) fingerR.position.z=-open;
   }
