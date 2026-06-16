@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
 
 (function(){
   "use strict";
@@ -40,6 +41,8 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
   let scene,camera,renderer,controls,loop=null,built=false;
   let baseGroup,shoulderG,elbowG,wristG,gripG,fingerL,fingerR,tcp;
   let blocks=[];
+  let ur5=null, mode="proc";          // 真機型 UR5（載入成功才切換）
+  const procObjs=[];                  // 程序化手臂物件（UR5 載入成功時隱藏）
 
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   function norm(t,c){ while(t-c>Math.PI)t-=2*Math.PI; while(t-c<-Math.PI)t+=2*Math.PI; return t; }
@@ -131,6 +134,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
     // J1 旋轉群（底座偏航，肩部 world Y = H）
     baseGroup=new THREE.Group(); scene.add(baseGroup);
+    procObjs.push(flange,baseHousing,baseGroup);
     const j1=cyl(0.19,0.2,0.18,"y",joint); j1.position.y=0.28; baseGroup.add(j1);
     const colLen=H-0.34;
     const col=capsule(0.12,colLen,link); col.position.y=0.34+colLen/2; baseGroup.add(col);
@@ -515,10 +519,73 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
   }
   function onResize(){ const host=$("arm3d"); if(!host||!renderer) return; const w=host.clientWidth,h=host.clientHeight; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h); }
 
+  // ---- 真機型 UR5（從 URDF + DAE 載入，附加式，失敗自動保留程序化手臂） ----
+  function v3(s){ return (s||"0 0 0").trim().split(/\s+/).map(Number); }
+  function parseOrigin(el){ return { xyz:v3(el&&el.getAttribute("xyz")||"0 0 0"), rpy:v3(el&&el.getAttribute("rpy")||"0 0 0") }; }
+  function rpyQuat(rpy){
+    const qx=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),rpy[0]);
+    const qy=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),rpy[1]);
+    const qz=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),rpy[2]);
+    return qz.multiply(qy).multiply(qx);   // URDF: R = Rz*Ry*Rx
+  }
+  async function loadUR5(){
+    try{
+      const base="models/ur5/";
+      const resp=await fetch(base+"ur5robot.urdf"); if(!resp.ok) throw new Error("urdf "+resp.status);
+      const doc=new DOMParser().parseFromString(await resp.text(),"application/xml");
+      if(doc.querySelector("parsererror")) throw new Error("urdf parse error");
+      const links={};
+      doc.querySelectorAll("robot > link").forEach(l=>{
+        const v=l.querySelector("visual"); let mesh=null,origin={xyz:[0,0,0],rpy:[0,0,0]};
+        if(v){ const m=v.querySelector("geometry mesh"); if(m) mesh=m.getAttribute("filename"); const o=v.querySelector("origin"); if(o) origin=parseOrigin(o); }
+        links[l.getAttribute("name")]={mesh,origin};
+      });
+      const jdefs=[];
+      doc.querySelectorAll("robot > joint").forEach(j=>{
+        const p=j.querySelector("parent"), c=j.querySelector("child"); if(!p||!c) return;
+        jdefs.push({ name:j.getAttribute("name"), type:j.getAttribute("type"), parent:p.getAttribute("link"), child:c.getAttribute("link"),
+          origin:parseOrigin(j.querySelector("origin")), axis:v3(j.querySelector("axis")&&j.querySelector("axis").getAttribute("xyz")||"1 0 0") });
+      });
+      const linkG={}; Object.keys(links).forEach(n=>linkG[n]=new THREE.Group());
+      const joints={}, childSet=new Set();
+      for(const jd of jdefs){
+        if(!linkG[jd.parent]||!linkG[jd.child]) continue;
+        const fixed=new THREE.Group(); fixed.position.fromArray(jd.origin.xyz); fixed.quaternion.copy(rpyQuat(jd.origin.rpy));
+        const act=new THREE.Group(); fixed.add(act); act.add(linkG[jd.child]); linkG[jd.parent].add(fixed); childSet.add(jd.child);
+        if(jd.type==="revolute"||jd.type==="continuous") joints[jd.name]={act,axis:new THREE.Vector3().fromArray(jd.axis).normalize(),value:0};
+      }
+      const rootName=Object.keys(linkG).find(n=>!childSet.has(n))||"world";
+      const robot=linkG[rootName];
+      const cl=new ColladaLoader();
+      await Promise.all(Object.entries(links).map(([name,info])=> new Promise(res=>{
+        if(!info.mesh){ res(); return; }
+        const file=info.mesh.replace(/^package:\/\/\.?\//,"").replace(/^\.\//,"");
+        cl.load(base+file, c=>{ const g=new THREE.Group(); g.position.fromArray(info.origin.xyz); g.quaternion.copy(rpyQuat(info.origin.rpy));
+          c.scene.traverse(o=>{ if(o.isMesh){o.castShadow=true;o.receiveShadow=true;} }); g.add(c.scene); linkG[name].add(g); res(); },
+          undefined, err=>{ console.warn("[UR5] mesh fail",file,err); res(); });
+      })));
+      const wrap=new THREE.Group(); wrap.rotation.x=-Math.PI/2; wrap.scale.setScalar(1.9); wrap.add(robot); scene.add(wrap);
+      const home={shoulder_pan_joint:0.5, shoulder_lift_joint:-1.35, elbow_joint:1.5, wrist_1_joint:-1.25, wrist_2_joint:-1.571, wrist_3_joint:0};
+      ur5={ wrap, robot, joints, ee:linkG["ee_link"]||linkG["wrist_3_link"] };
+      setUR5(home);
+      procObjs.forEach(o=>{ if(o) o.visible=false; });
+      if(controls){ controls.target.set(0,0.65,0); controls.update(); }
+      mode="ur5";
+      const box=new THREE.Box3().setFromObject(wrap), sz=new THREE.Vector3(); box.getSize(sz);
+      const ee=new THREE.Vector3(); (ur5.ee||robot).getWorldPosition(ee);
+      console.log("[UR5] LOADED ✓ joints=",Object.keys(joints)," bbox=",sz.toArray().map(n=>+n.toFixed(2))," EE=",ee.toArray().map(n=>+n.toFixed(2)));
+      log("已載入真機型 UR5");
+      ai("✅ 已載入真實 <b>Universal Robots UR5</b> 模型（數位孿生）。<span class=\"ai-step\">先拖曳環繞看看它的外型；動作控制我接著接上去。</span>");
+      const sync=document.querySelector(".dt-sync"); if(sync) sync.textContent="● 真機型 UR5 已連線";
+      const badge=document.querySelector(".dt-badge"); if(badge&&badge.childNodes[0]) badge.childNodes[0].nodeValue="🛰️ 數位孿生 · UR5　";
+    }catch(e){ console.warn("[UR5] 載入失敗，保留程序化手臂：",e); }
+  }
+  function setUR5(map){ if(!ur5) return; for(const n in map){ const j=ur5.joints[n]; if(j){ j.value=map[n]; j.act.quaternion.setFromAxisAngle(j.axis,map[n]); } } if(ur5.wrap) ur5.wrap.updateMatrixWorld(true); }
+
   // ---- 對外 ----
   let started=false;
   window.ArmDemo={
-    init(){ if(started) return; if(!$("arm3d")) return; build(); applyJoints(); bind(); if(!loop) loop=setInterval(frame,16); started=true; setTimeout(onResize,50); },
+    init(){ if(started) return; if(!$("arm3d")) return; build(); applyJoints(); bind(); if(!loop) loop=setInterval(frame,16); started=true; setTimeout(onResize,50); loadUR5(); },
     isStarted(){ return started; },
     exec:execAction, keyword:parse, say:ai, log:log
   };
