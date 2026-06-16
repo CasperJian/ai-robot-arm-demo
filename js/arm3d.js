@@ -44,6 +44,9 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
   let ur5=null, mode="proc";          // 真機型 UR5（載入成功才切換）
   const procObjs=[];                  // 程序化手臂物件（UR5 載入成功時隱藏）
   const _v=new THREE.Vector3();       // 暫存向量
+  const UR5_ALL=["shoulder_pan_joint","shoulder_lift_joint","elbow_joint","wrist_1_joint","wrist_2_joint","wrist_3_joint"];
+  const UR5_IK=["shoulder_pan_joint","shoulder_lift_joint","elbow_joint","wrist_1_joint"];   // CCD 求解用
+  const UR5_HOME={shoulder_pan_joint:0.4,shoulder_lift_joint:-1.4,elbow_joint:1.5,wrist_1_joint:-1.2,wrist_2_joint:-1.571,wrist_3_joint:0};
 
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   function norm(t,c){ while(t-c>Math.PI)t-=2*Math.PI; while(t-c<-Math.PI)t+=2*Math.PI; return t; }
@@ -241,7 +244,9 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
     st.cur.g+=(st.tgt.g-st.cur.g)*0.18;
     applyJoints();
     if(mode==="ur5" && ur5){
-      mirrorUR5();
+      const e2=SPEEDS[st.speed].e;
+      for(const n of UR5_IK) ur5.cur[n]+=(ur5.tgt[n]-ur5.cur[n])*e2;
+      applyUR5();
       if(st.holding && ur5.ee){ ur5.ee.getWorldPosition(_v); st.holding.mesh.position.copy(_v); }
     }
     if(controls) controls.update();
@@ -251,6 +256,7 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
 
   // ---- 動作原語 ----
   function moveTo(x,y,z){
+    if(mode==="ur5" && ur5) return moveToUR5(x,y,z);
     return new Promise((res,rej)=>{
       if(st.fault||st.estop) return rej("halt");
       setIK(x,y,z); let t=0;
@@ -269,8 +275,16 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
   function release(b,x,z,y){ scene.attach(b.mesh); b.mesh.position.set(x,y??BY,z); b.mesh.rotation.set(0,0,0); st.holding=null; }
 
   // ---- 任務 ----
-  async function tHome(){ const s=-0.5,e=1.7; st.tgt={y:norm(0.6,st.cur.y),s,e,w:norm((-Math.PI/2)-(s+e),st.cur.w),g:1}; await settle(); }
-  async function tWave(){ ai("嗨～你好！👋"); log("揮手打招呼"); await moveTo(0.6,1.35,0.2);
+  async function tHome(){
+    if(mode==="ur5" && ur5){ for(const n of UR5_IK) ur5.tgt[n]=UR5_HOME[n]; await settleUR5(); return; }
+    const s=-0.5,e=1.7; st.tgt={y:norm(0.6,st.cur.y),s,e,w:norm((-Math.PI/2)-(s+e),st.cur.w),g:1}; await settle();
+  }
+  async function tWave(){ ai("嗨～你好！👋"); log("揮手打招呼");
+    if(mode==="ur5" && ur5){
+      await moveTo(0.55,0.95,0.25);
+      for(let i=0;i<3;i++){ if(st.estop||st.fault)break; ur5.tgt.shoulder_pan_joint=clampA(ur5.cur.shoulder_pan_joint+0.4); await wait(260); ur5.tgt.shoulder_pan_joint=clampA(ur5.cur.shoulder_pan_joint-0.4); await wait(260);} await tHome(); return;
+    }
+    await moveTo(0.6,1.35,0.2);
     for(let i=0;i<3;i++){ if(st.estop||st.fault)break; st.tgt.y=norm(st.cur.y+0.3,st.cur.y); await wait(220); st.tgt.y=norm(st.cur.y-0.3,st.cur.y); await wait(220);} await tHome(); }
   async function tGrip(open){ ai(`夾爪${open?"張開":"夾合"}…`); log(`夾爪${open?"張開":"夾合"}`); await setGrip(open); }
 
@@ -351,6 +365,11 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
   }
   async function tRotate(joint,deg,abs){
     joint=(joint||"j1").toString().toLowerCase(); deg=Number(deg)||0; const rad=deg*Math.PI/180;
+    if(mode==="ur5" && ur5){
+      const jn = /j3|3|肘|elbow/.test(joint)?"elbow_joint" : /j2|2|肩|shoulder|lift/.test(joint)?"shoulder_lift_joint" : "shoulder_pan_joint";
+      ur5.tgt[jn]=clampA(abs?rad:ur5.cur[jn]+rad);
+      ai(`旋轉 ${jn==="shoulder_pan_joint"?"底座 J1":jn==="shoulder_lift_joint"?"肩 J2":"肘 J3"} ${deg}°…`); log(`旋轉 ${jn} ${deg}°`); await settleUR5(); return;
+    }
     if(/j1|1|底|base|肩座/.test(joint)){ st.tgt.y=norm(abs?rad:st.cur.y+rad,st.cur.y); ai(`底座(J1) ${abs?"轉到":"轉"} ${deg}°…`); }
     else if(/j3|3|肘|elbow/.test(joint)){ st.tgt.e=norm(abs?rad:st.cur.e+rad,st.cur.e); st.tgt.w=norm((-Math.PI/2)-(st.cur.s+st.tgt.e),st.cur.w); ai(`肘(J3) ${abs?"轉到":"轉"} ${deg}°…`); }
     else { st.tgt.s=norm(abs?rad:st.cur.s+rad,st.cur.s); st.tgt.w=norm((-Math.PI/2)-(st.tgt.s+st.cur.e),st.cur.w); ai(`肩(J2) ${abs?"轉到":"轉"} ${deg}°…`); }
@@ -576,9 +595,8 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
           undefined, err=>{ console.warn("[UR5] mesh fail",file,err); res(); });
       })));
       const wrap=new THREE.Group(); wrap.rotation.x=-Math.PI/2; wrap.scale.setScalar(1.9); wrap.add(robot); scene.add(wrap);
-      const home={shoulder_pan_joint:0.5, shoulder_lift_joint:-1.35, elbow_joint:1.5, wrist_1_joint:-1.25, wrist_2_joint:-1.571, wrist_3_joint:0};
-      ur5={ wrap, robot, joints, ee:linkG["ee_link"]||linkG["wrist_3_link"] };
-      setUR5(home);
+      ur5={ wrap, robot, joints, ee:linkG["ee_link"]||linkG["wrist_3_link"], cur:{...UR5_HOME}, tgt:{...UR5_HOME} };
+      applyUR5();
       procObjs.forEach(o=>{ if(o) o.visible=false; });
       if(controls){ controls.target.set(0,0.65,0); controls.update(); }
       mode="ur5";
@@ -592,17 +610,42 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
     }catch(e){ console.warn("[UR5] 載入失敗，保留程序化手臂：",e); }
   }
   function setUR5(map){ if(!ur5) return; for(const n in map){ const j=ur5.joints[n]; if(j){ j.value=map[n]; j.act.quaternion.setFromAxisAngle(j.axis,map[n]); } } if(ur5.wrap) ur5.wrap.updateMatrixWorld(true); }
-  // 鏡像驅動：UR5 跟著指令算出的程序化關節狀態動（底座旋轉幾何正確）
-  function mirrorUR5(){
-    if(!ur5) return; const J=ur5.joints, s=st.cur.s, e=st.cur.e;
-    const set=(n,v)=>{ const j=J[n]; if(j){ j.value=v; j.act.quaternion.setFromAxisAngle(j.axis,v); } };
-    set("shoulder_pan_joint", st.cur.y);
-    set("shoulder_lift_joint", -1.25 + s*0.85);
-    set("elbow_joint", 1.15 + (e-1.7)*0.85);
-    set("wrist_1_joint", -1.45 - s - (e-1.7));
-    set("wrist_2_joint", -1.571);
-    set("wrist_3_joint", 0);
+  function applyUR5(){ if(!ur5) return; for(const n of UR5_ALL){ const j=ur5.joints[n]; if(j){ j.value=ur5.cur[n]; j.act.quaternion.setFromAxisAngle(j.axis,ur5.cur[n]); } } ur5.wrap.updateMatrixWorld(true); }
+  function clampA(v){ return Math.max(-2*Math.PI,Math.min(2*Math.PI,v)); }
+  function reachedUR5(){ for(const n of UR5_IK){ if(Math.abs(ur5.tgt[n]-ur5.cur[n])>0.015) return false; } return true; }
+  function settleUR5(){ return new Promise(res=>{ let t=0; const iv=setInterval(()=>{ if(st.estop||st.fault||reachedUR5()||++t>300){clearInterval(iv);res();} },16); }); }
+  // CCD 數值逆向運動學：解出讓末端到達 (tx,ty,tz) 的關節角，不動到顯示中的姿態
+  const _P=new THREE.Vector3(),_E=new THREE.Vector3(),_ax=new THREE.Vector3(),_tE=new THREE.Vector3(),_tT=new THREE.Vector3(),_cr=new THREE.Vector3();
+  function ccdSolve(tx,ty,tz){
+    const target=new THREE.Vector3(tx,ty,tz), saved={};
+    for(const n of UR5_ALL){ const j=ur5.joints[n]; saved[n]=j.value; j.value=ur5.cur[n]; j.act.quaternion.setFromAxisAngle(j.axis,ur5.cur[n]); }
     ur5.wrap.updateMatrixWorld(true);
+    for(let it=0;it<20;it++){
+      for(let i=UR5_IK.length-1;i>=0;i--){
+        const j=ur5.joints[UR5_IK[i]];
+        j.act.getWorldPosition(_P); ur5.ee.getWorldPosition(_E);
+        _ax.copy(j.axis).transformDirection(j.act.matrixWorld).normalize();
+        _tE.subVectors(_E,_P); _tT.subVectors(target,_P);
+        _tE.addScaledVector(_ax,-_tE.dot(_ax)); _tT.addScaledVector(_ax,-_tT.dot(_ax));
+        if(_tE.lengthSq()<1e-8||_tT.lengthSq()<1e-8) continue;
+        _tE.normalize(); _tT.normalize();
+        let ang=Math.acos(Math.max(-1,Math.min(1,_tE.dot(_tT))));
+        _cr.crossVectors(_tE,_tT); if(_cr.dot(_ax)<0) ang=-ang;
+        j.value=clampA(j.value+ang*0.6); j.act.quaternion.setFromAxisAngle(j.axis,j.value);
+        ur5.wrap.updateMatrixWorld(true);
+      }
+    }
+    const sol={}; for(const n of UR5_IK) sol[n]=ur5.joints[n].value;
+    for(const n of UR5_ALL){ const j=ur5.joints[n]; j.value=saved[n]; j.act.quaternion.setFromAxisAngle(j.axis,saved[n]); }
+    ur5.wrap.updateMatrixWorld(true);
+    return sol;
+  }
+  function moveToUR5(x,y,z){
+    return new Promise((res,rej)=>{
+      if(st.fault||st.estop) return rej("halt");
+      const sol=ccdSolve(x,y,z); for(const n in sol) ur5.tgt[n]=sol[n];
+      let t=0; const iv=setInterval(()=>{ if(st.fault||st.estop){clearInterval(iv);return rej("halt");} if(reachedUR5()||++t>320){clearInterval(iv);res();} },16);
+    });
   }
 
   // ---- 對外 ----
