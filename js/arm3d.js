@@ -43,6 +43,7 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
   let blocks=[];
   let ur5=null, mode="proc";          // 真機型 UR5（載入成功才切換）
   const procObjs=[];                  // 程序化手臂物件（UR5 載入成功時隱藏）
+  const _v=new THREE.Vector3();       // 暫存向量
 
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   function norm(t,c){ while(t-c>Math.PI)t-=2*Math.PI; while(t-c<-Math.PI)t+=2*Math.PI; return t; }
@@ -239,6 +240,10 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
     st.cur.w+=(st.tgt.w-st.cur.w)*e;
     st.cur.g+=(st.tgt.g-st.cur.g)*0.18;
     applyJoints();
+    if(mode==="ur5" && ur5){
+      mirrorUR5();
+      if(st.holding && ur5.ee){ ur5.ee.getWorldPosition(_v); st.holding.mesh.position.copy(_v); }
+    }
     if(controls) controls.update();
     if(renderer) renderer.render(scene,camera);
     telem();
@@ -260,7 +265,7 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
   function setGrip(open){ st.tgt.g=open?1:0; return wait(280); }
   function nextSupply(color){ return blocks.find(b=>!b.placed && b!==st.holding && b.color===color); }
 
-  function attach(b){ gripG.attach(b.mesh); st.holding=b; }
+  function attach(b){ if(mode==="ur5"){ st.holding=b; } else { gripG.attach(b.mesh); st.holding=b; } }
   function release(b,x,z,y){ scene.attach(b.mesh); b.mesh.position.set(x,y??BY,z); b.mesh.rotation.set(0,0,0); st.holding=null; }
 
   // ---- 任務 ----
@@ -485,8 +490,14 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
   function stStr(){ return st.estop?"急停":st.fault?"故障":st.busy?"運轉中":"待命"; }
   function setT(id,v){ const e=$(id); if(e) e.textContent=v; }
   function telem(){
-    if(!tcp) return; const p=new THREE.Vector3(); tcp.getWorldPosition(p);
-    setT("tJ1",deg(st.cur.y)+"°"); setT("tJ2",deg(st.cur.s)+"°"); setT("tJ3",deg(st.cur.e)+"°");
+    const p=new THREE.Vector3();
+    if(mode==="ur5" && ur5){
+      const J=ur5.joints; if(ur5.ee) ur5.ee.getWorldPosition(p);
+      setT("tJ1",deg(J.shoulder_pan_joint.value)+"°"); setT("tJ2",deg(J.shoulder_lift_joint.value)+"°"); setT("tJ3",deg(J.elbow_joint.value)+"°");
+    }else{
+      if(!tcp) return; tcp.getWorldPosition(p);
+      setT("tJ1",deg(st.cur.y)+"°"); setT("tJ2",deg(st.cur.s)+"°"); setT("tJ3",deg(st.cur.e)+"°");
+    }
     setT("tTCP",`${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}`);
     setT("tGrip",st.cur.g>0.5?"開":"合"); setT("tSpeed",SPEEDS[st.speed].pct+"%"); setT("tCycles",st.cycles);
     const s=st.estop?["急停","r"]:st.fault?["故障","r"]:st.busy?["運轉中","a"]:["待命","g"];
@@ -581,6 +592,18 @@ import { ColladaLoader } from "three/addons/loaders/ColladaLoader.js";
     }catch(e){ console.warn("[UR5] 載入失敗，保留程序化手臂：",e); }
   }
   function setUR5(map){ if(!ur5) return; for(const n in map){ const j=ur5.joints[n]; if(j){ j.value=map[n]; j.act.quaternion.setFromAxisAngle(j.axis,map[n]); } } if(ur5.wrap) ur5.wrap.updateMatrixWorld(true); }
+  // 鏡像驅動：UR5 跟著指令算出的程序化關節狀態動（底座旋轉幾何正確）
+  function mirrorUR5(){
+    if(!ur5) return; const J=ur5.joints, s=st.cur.s, e=st.cur.e;
+    const set=(n,v)=>{ const j=J[n]; if(j){ j.value=v; j.act.quaternion.setFromAxisAngle(j.axis,v); } };
+    set("shoulder_pan_joint", st.cur.y);
+    set("shoulder_lift_joint", -1.25 + s*0.85);
+    set("elbow_joint", 1.15 + (e-1.7)*0.85);
+    set("wrist_1_joint", -1.45 - s - (e-1.7));
+    set("wrist_2_joint", -1.571);
+    set("wrist_3_joint", 0);
+    ur5.wrap.updateMatrixWorld(true);
+  }
 
   // ---- 對外 ----
   let started=false;
